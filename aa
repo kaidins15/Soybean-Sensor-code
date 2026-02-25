@@ -1,0 +1,108 @@
+#include <WiFi.h>
+#include <esp_now.h>
+
+// ====== SENSOR SETTINGS ======
+#define SENSOR_PIN 32  // ADC pin (GPIO32)
+const int DRY_VALUE = 3200;   // 완전 건조 시 raw (캘리브레이션 필요)
+const int WET_VALUE = 1500;   // 물에 담갔을 때 raw (캘리브레이션 필요)
+const unsigned long READ_INTERVAL = 10000; // 10초마다 전송 (원하는 주기로 변경)
+
+// ====== MAIN NODE MAC (receiver) ======
+uint8_t receiverMac[] = {0xEC, 0xE3, 0x34, 0xA3, 0x4F, 0x68};
+
+
+// ====== PACKET FORMAT ======
+typedef struct __attribute__((packed)) {
+  uint8_t nodeId;
+  uint32_t msgId;
+  uint32_t ms;
+  int rawValue;
+  int moisturePercent;
+} SensorPacket;
+
+uint32_t msgId = 0;
+unsigned long lastReadTime = 0;
+
+int mapMoistureToPercent(int rawValue) {
+  int percent = map(rawValue, DRY_VALUE, WET_VALUE, 0, 100);
+  percent = constrain(percent, 0, 100);
+  return percent;
+}
+
+int readSensor() {
+  // 간단 노이즈 감소: 5번 읽어서 평균
+  long sum = 0;
+  for (int i = 0; i < 5; i++) {
+    sum += analogRead(SENSOR_PIN);
+    delay(5);
+  }
+  return (int)(sum / 5);
+}
+
+void onSent(const wifi_tx_info_t* info, esp_now_send_status_t status) {
+  Serial.print("ESP-NOW send: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  // ADC는 기본으로 OK (ESP32는 0~4095)
+  pinMode(SENSOR_PIN, INPUT);
+
+  // ESP-NOW init
+  WiFi.mode(WIFI_STA);
+  Serial.print("Sensor Node MAC: ");
+  Serial.println(WiFi.macAddress());
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed");
+    return;
+  }
+  esp_now_register_send_cb(onSent);
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, receiverMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Add peer failed");
+    return;
+  }
+
+  Serial.println("Sensor Node READY");
+}
+
+void loop() {
+  if (millis() - lastReadTime >= READ_INTERVAL) {
+    lastReadTime = millis();
+
+    int rawValue = readSensor();
+    int moisturePercent = mapMoistureToPercent(rawValue);
+
+    // Serial debug
+    Serial.println("-----------------------------");
+    Serial.print("Raw Value: "); Serial.println(rawValue);
+    Serial.print("Moisture: "); Serial.print(moisturePercent); Serial.println("%");
+
+    if (moisturePercent < 30) Serial.println("Status: DRY");
+    else if (moisturePercent < 60) Serial.println("Status: OK");
+    else Serial.println("Status: WET");
+
+    // build packet
+    SensorPacket p;
+    p.nodeId = 1;  // 센서노드 ID (필요하면 바꾸기)
+    p.msgId = msgId++;
+    p.ms = millis();
+    p.rawValue = rawValue;
+    p.moisturePercent = moisturePercent;
+
+    // send
+    esp_err_t result = esp_now_send(receiverMac, (uint8_t*)&p, sizeof(p));
+    Serial.print("Send result: ");
+    Serial.println(result == ESP_OK ? "ESP_OK" : "ERR");
+    Serial.println("-----------------------------\n");
+  }
+}
