@@ -1,0 +1,105 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// ====== LCD SETTINGS ======
+LiquidCrystal_I2C lcd(0x27, 16, 2); // 주소가 다르면 0x3F 등으로 변경
+
+const int ledPin = 2; // onboard LED (보드에 따라 다를 수 있음)
+
+// ====== PACKET FORMAT (must match sender) ======
+typedef struct __attribute__((packed)) {
+  uint8_t nodeId;
+  uint32_t msgId;
+  uint32_t ms;
+  int rawValue;
+  int moisturePercent;
+} SensorPacket;
+
+// 최신 수신값 저장
+volatile bool hasNew = false;
+SensorPacket lastPkt;
+
+unsigned long lastBlink = 0;
+bool ledState = false;
+
+// ESP-NOW receive callback
+void onReceive(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
+  if (len != sizeof(SensorPacket)) return;
+  memcpy((void*)&lastPkt, data, sizeof(SensorPacket));  hasNew = true;
+}
+
+void showOnLCD(const SensorPacket& p) {
+  lcd.clear();
+
+  // Line 1: Moisture percent
+  lcd.setCursor(0, 0);
+  lcd.print("Moist ");
+  lcd.print(p.moisturePercent);
+  lcd.print("%");
+
+  // Line 2: Raw + status
+  lcd.setCursor(0, 1);
+  lcd.print("Raw ");
+  lcd.print(p.rawValue);
+
+  lcd.setCursor(11, 1);
+  if (p.moisturePercent < 30) lcd.print("DRY");
+  else if (p.moisturePercent < 60) lcd.print("OK ");
+  else lcd.print("WET");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+
+  // LCD init
+  Wire.begin(21, 22);
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Main Node Ready");
+  lcd.setCursor(0,1);
+  lcd.print("Waiting data");
+
+  // ESP-NOW init
+  WiFi.mode(WIFI_STA);
+  Serial.print("Main Node MAC: ");
+  Serial.println(WiFi.macAddress());
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed");
+    lcd.clear();
+    lcd.print("ESP-NOW FAIL");
+    return;
+  }
+
+  esp_now_register_recv_cb(onReceive);
+  Serial.println("ESP-NOW Receiver READY");
+}
+
+void loop() {
+  // LED heartbeat every 500ms
+  if (millis() - lastBlink >= 500) {
+    lastBlink = millis();
+    ledState = !ledState;
+    digitalWrite(ledPin, ledState ? HIGH : LOW);
+  }
+
+  // If new data arrived, print & display
+  if (hasNew) {
+    hasNew = false;
+
+    Serial.printf("RX node=%d msg=%lu raw=%d moist=%d%%\n",
+                  lastPkt.nodeId,
+                  (unsigned long)lastPkt.msgId,
+                  lastPkt.rawValue,
+                  lastPkt.moisturePercent);
+
+    showOnLCD(lastPkt);
+  }
+}
