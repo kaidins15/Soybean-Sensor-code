@@ -1,25 +1,19 @@
-/*
- * RECEIVER HUB CODE (Freenove ESP32)
- * 1. Creates Wi-Fi AP "ESP32-Hub"
- * 2. Receives ESP-NOW data from Seeed XIAO
- * 3. Hosts Web Server & Updates Zero-Flicker LCD
- */
 #include <esp_now.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <Preferences.h>
 
-// --- LCD CONFIGURATION ---
-// Orange = SDA (GPIO 21), Yellow = SCL (GPIO 22)
+// Initialize LCD
 LiquidCrystal_I2C lcd(0x27, 16, 2); 
+Preferences prefs;
 
 const char* ssid = "ESP32-Hub";
 const char* password = "password123";
-
 WebServer server(80);
 
-// Structure MUST match V2_Sensor.ino 
+// Structure must match V2_Sensor.ino exactly [cite: 3, 45]
 typedef struct struct_message {
   int id;
   float temp;
@@ -34,33 +28,35 @@ struct_message boardsStruct[4];
 
 // Zero-Flicker Tracking Variables
 int lastHB_Moist = -1;
-int lastHB_Sal = -1;
+int lastHB_Raw = -1;
 bool hbState = false;
 unsigned long lastLCDUpdate = 0;
 
-// --- ESP-NOW CALLBACK ---
-void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+// --- FIXED ESP-NOW CALLBACK FOR VERSION 3.0+ ---
+// The first argument is now a pointer to esp_now_recv_info_t
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
   struct_message incomingReadings;
   memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
   
-  int index = incomingReadings.id - 1; [cite: 8]
+  // Store data based on ID [cite: 8, 9]
+  int index = incomingReadings.id - 1;
   if (index >= 0 && index < 4) {
-    boardsStruct[index] = incomingReadings; [cite: 9]
+    boardsStruct[index] = incomingReadings;
   }
 }
 
 // --- HTML WEBPAGE ---
 String getHTML() {
-  String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"; [cite: 16, 17]
-  html += "<meta http-equiv=\"refresh\" content=\"2\"><style>body { font-family: Arial; text-align: center; }"; [cite: 17, 18]
-  html += "table { margin: auto; border-collapse: collapse; width: 90%; } td, th { border: 1px solid #ddd; padding: 8px; }</style></head><body>"; [cite: 19, 20]
-  html += "<h1>ESP32 Sensor Hub</h1><table><tr><th>Board</th><th>Moisture (%)</th><th>Raw</th><th>Voltage</th></tr>"; [cite: 22]
+  String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<meta http-equiv=\"refresh\" content=\"2\"><style>body { font-family: Arial; text-align: center; }";
+  html += "table { margin: auto; border-collapse: collapse; width: 90%; } td, th { border: 1px solid #ddd; padding: 8px; }</style></head><body>";
+  html += "<h1>ESP32 Sensor Hub</h1><table><tr><th>Board ID</th><th>Moisture (%)</th><th>Moisture Raw</th><th>Voltage</th></tr>";
   
   for (int i = 0; i < 4; i++) {
-    html += "<tr><td>Board " + String(i+1) + "</td>"; [cite: 24]
-    html += "<td>" + String(boardsStruct[i].soilmoisture) + "%</td>"; [cite: 28]
-    html += "<td>" + String(boardsStruct[i].moistureRaw) + "</td>"; [cite: 27]
-    html += "<td>" + String(boardsStruct[i].batteryVoltage, 2) + "V</td></tr>"; [cite: 27]
+    html += "<tr><td>Board " + String(i+1) + "</td>";
+    html += "<td>" + String(boardsStruct[i].soilmoisture) + "%</td>";
+    html += "<td>" + String(boardsStruct[i].moistureRaw) + "</td>";
+    html += "<td>" + String(boardsStruct[i].batteryVoltage, 2) + "V</td></tr>";
   }
   html += "</table></body></html>";
   return html;
@@ -68,51 +64,58 @@ String getHTML() {
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21, 22); // Orange/Yellow pins
+  Wire.begin(21, 22); // Orange=SDA, Yellow=SCL
   
-  // LCD Initialization
   lcd.init();
   lcd.backlight();
   lcd.clear();
+  
+  // Initial Labels
   lcd.setCursor(0, 0); lcd.print("A:H.... S... ..C");
   lcd.setCursor(0, 1); lcd.print("B:H.... S...    ");
 
-  WiFi.mode(WIFI_AP_STA); [cite: 36]
-  WiFi.softAP(ssid, password); [cite: 37]
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(ssid, password);
 
-  if (esp_now_init() != ESP_OK) { return; } [cite: 38, 39]
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv)); [cite: 39]
+  // Initialize ESP-NOW [cite: 38]
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  
+  // Register the fixed callback
+  esp_now_register_recv_cb(OnDataRecv);
 
-  server.on("/", [](){ server.send(200, "text/html", getHTML()); }); [cite: 40]
+  server.on("/", [](){ server.send(200, "text/html", getHTML()); });
   server.begin();
 }
 
 void loop() {
-  server.handleClient(); [cite: 41]
+  server.handleClient();
 
-  // Zero-Flicker LCD Update (Every 500ms)
+  // Update LCD every 500ms without clearing
   if (millis() - lastLCDUpdate > 500) {
     lastLCDUpdate = millis();
     hbState = !hbState;
 
-    // Bed B Data from Board 1 (XIAO) [cite: 44, 55]
+    // Use Board 1 (XIAO) data for Bed B display
     int currentMoist = boardsStruct[0].soilmoisture;
     int currentRaw = boardsStruct[0].moistureRaw;
 
-    // Only update the LCD if values have changed to prevent flickering
+    // Only update if values change (Anti-Flicker)
     if (currentMoist != lastHB_Moist) {
       lcd.setCursor(3, 1);
       lcd.print(pad(currentMoist, 4)); 
       lastHB_Moist = currentMoist;
     }
 
-    if (currentRaw != lastHB_Sal) {
+    if (currentRaw != lastHB_Raw) {
       lcd.setCursor(9, 1);
       lcd.print(pad(currentRaw, 3));
-      lastHB_Sal = currentRaw;
+      lastHB_Raw = currentRaw;
     }
 
-    // Heartbeat Indicator
+    // Heartbeat
     lcd.setCursor(12, 1);
     lcd.print(hbState ? "*" : " ");
   }
