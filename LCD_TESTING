@@ -1,0 +1,15 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Try 0x27 first, then 0x3F if it stays blank
+LiquidCrystal_I2C lcd(0x27, 16, 2); 
+
+void setup() {
+  Wire.begin(21, 22); // Orange=21, Yellow=22
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("TESTING..."); 
+}
+
+void loop() {}
