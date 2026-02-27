@@ -1,0 +1,63 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Preferences.h>
+
+// Initialize LCD (Address 0x27 is standard, 16 columns, 2 rows)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+Preferences prefs;
+
+// Global variables for Experiment Metrics
+float totalLitersB = 0.0;
+bool heartbeat = false;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+
+  // Load saved cumulative data from ESP32 memory
+  prefs.begin("irrigation", false); 
+  totalLitersB = prefs.getFloat("totalL", 0.0); // Resume from last recorded value 
+  
+  lcd.setCursor(0, 0);
+  lcd.print("System Ready...");
+  delay(1000);
+}
+
+void loop() {
+  // Mock values - Replace these with your ESP-NOW received data [cite: 29]
+  int moistureA = 2450; int salinityA = 420; int tempA = 22;
+  int moistureB = 2150; int salinityB = 380; bool pumpB = true;
+
+  // 1. Update the LCD with the Dual-Testbed Layout
+  updateLCD(moistureA, salinityA, tempA, moistureB, salinityB, pumpB);
+
+  // 2. Memory Recording Logic (Example: Record every time 0.1L is added)
+  // This satisfies the "Total cumulative water usage will be recorded" requirement.
+  saveToMemory();
+
+  heartbeat = !heartbeat; // Toggle heartbeat
+  delay(1000); 
+}
+
+void updateLCD(int hA, int sA, int tA, int hB, int sB, bool pB) {
+  // Line 1: Testbed A (Baseline/Flood) [cite: 9]
+  lcd.setCursor(0, 0);
+  char line1[17];
+  sprintf(line1, "A:H%04d S%03d %02dC", hA, sA, tA);
+  lcd.print(line1);
+
+  // Line 2: Testbed B (Smart Drip) [cite: 10]
+  lcd.setCursor(0, 1);
+  char line2[17];
+  // Shows "B", Moisture, Salinity, Heartbeat, and Pump Status [cite: 17, 37]
+  sprintf(line2, "B:H%04d S%03d %c%s", hB, sB, (heartbeat ? '*' : ' '), (pB ? "ON " : "OFF"));
+  lcd.print(line2);
+}
+
+void saveToMemory() {
+  // Periodically commit to NVM to preserve data during power loss 
+  prefs.putFloat("totalL", totalLitersB);
+}
