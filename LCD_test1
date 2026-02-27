@@ -2,65 +2,64 @@
 #include <LiquidCrystal_I2C.h>
 #include <Preferences.h>
 
-// Orange = SDA (GPIO 21), Yellow = SCL (GPIO 22)
+// Orange = SDA (21), Yellow = SCL (22)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 Preferences prefs;
 
+// Store previous values to prevent redundant writing (The "Anti-Flicker" Logic)
+int lastHA, lastSA, lastTA, lastHB, lastSB;
+bool lastPump;
 unsigned long lastUpdate = 0;
-bool hb = false;
 
 void setup() {
-  Wire.begin(21, 22); 
+  Wire.begin(21, 22);
   lcd.init();
   lcd.backlight();
-  
-  // Static labels that NEVER change (reduces flickering)
-  lcd.setCursor(0, 0);
-  lcd.print("A:H.... S... ..C"); 
-  lcd.setCursor(0, 1);
-  lcd.print("B:H.... S...    ");
+  lcd.clear();
 
-  prefs.begin("irrigation", false); 
+  // Print STATIC LABELS once. These never move.
+  lcd.setCursor(0, 0); lcd.print("A:H.... S... ..C");
+  lcd.setCursor(0, 1); lcd.print("B:H.... S...    ");
+
+  prefs.begin("irrigation", false);
 }
 
 void loop() {
-  // Update only every 500ms to maintain "Moisture Stability" [cite: 29]
+  // Update sensors every 500ms to meet "System Validation" requirements [cite: 28, 29]
   if (millis() - lastUpdate > 500) {
     lastUpdate = millis();
-    hb = !hb;
 
-    // These would be your real sensor variables [cite: 37]
+    // INPUTS: Replace these with your actual sensor variables
     int hA = 2450; int sA = 420; int tA = 22; 
-    int hB = 2150; int sB = 380; bool pumpB = true;
+    int hB = 2150; int sB = 380; bool pumpB = false;
 
-    // UPDATE TESTBED A (Row 0) - Only update the numbers
-    lcd.setCursor(3, 0);  lcd.print(formatValue(hA, 4)); // Moisture
-    lcd.setCursor(9, 0);  lcd.print(formatValue(sA, 3)); // Salinity 
-    lcd.setCursor(13, 0); lcd.print(tA);               // Temp
+    // --- TESTBED A UPDATES ---
+    if (hA != lastHA) { lcd.setCursor(3, 0); lcd.print(pad(hA, 4)); lastHA = hA; }
+    if (sA != lastSA) { lcd.setCursor(9, 0); lcd.print(pad(sA, 3)); lastSA = sA; }
+    if (tA != lastTA) { lcd.setCursor(13, 0); lcd.print(pad(tA, 2)); lastTA = tA; }
 
-    // UPDATE TESTBED B (Row 1)
-    lcd.setCursor(3, 1);  lcd.print(formatValue(hB, 4));
-    lcd.setCursor(9, 1);  lcd.print(formatValue(sB, 3));
+    // --- TESTBED B UPDATES ---
+    if (hB != lastHB) { lcd.setCursor(3, 1); lcd.print(pad(hB, 4)); lastHB = hB; }
+    if (sB != lastSB) { lcd.setCursor(9, 1); lcd.print(pad(sB, 3)); lastSB = sB; }
     
-    // Heartbeat & Pump Status - Critical for "System Functionality" [cite: 29]
-    lcd.setCursor(12, 1);
-    lcd.print(hb ? "*" : " "); 
-    lcd.setCursor(13, 1);
-    lcd.print(pumpB ? " ON" : "OFF");
+    // Pump Status Toggle
+    if (pumpB != lastPump) {
+      lcd.setCursor(13, 1);
+      lcd.print(pumpB ? "ON " : "OFF");
+      lastPump = pumpB;
+    }
 
-    // Record total usage to NVM as required [cite: 17, 18]
-    saveData(hB, sB);
+    // Heartbeat: Always flickers one character to show "Full system functionality" 
+    static bool hb = false;
+    lcd.setCursor(12, 1);
+    lcd.print(hb ? "*" : " ");
+    hb = !hb;
   }
 }
 
-// Helper function to keep numbers aligned (prevents "ghost" digits)
-String formatValue(int val, int width) {
+// Helper to prevent "ghost digits" (e.g., 1000 becoming 9990)
+String pad(int val, int width) {
   String s = String(val);
-  while (s.length() < width) s = "0" + s; // Adds leading zeros
+  while (s.length() < width) s = " " + s; 
   return s;
-}
-
-void saveData(int h, int s) {
-  // Logic to commit to Freenove ESP32 memory [cite: 18]
-  // prefs.putInt("lastS", s); 
 }
