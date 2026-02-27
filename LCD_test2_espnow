@@ -1,0 +1,80 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Preferences.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Orange=21, Yellow=22
+Preferences prefs;
+
+// Structure to hold incoming sensor data. MUST match the XIAO sender structure.
+typedef struct struct_message {
+    int moisture;
+    int salinity;
+    int temperature;
+    bool pumpState;
+} struct_message;
+
+struct_message incomingData;
+int lastHA, lastSA, lastTA, lastHB, lastSB;
+bool lastPump;
+unsigned long lastUpdate = 0;
+
+// Callback function that triggers when data is received from the XIAO
+void OnDataRecv(const uint8_t * mac, const uint8_t *incoming, int len) {
+    memcpy(&incomingData, incoming, sizeof(incomingData));
+}
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(21, 22);
+    lcd.init();
+    lcd.backlight();
+    
+    // Static Labels
+    lcd.setCursor(0, 0); lcd.print("A:H.... S... ..C");
+    lcd.setCursor(0, 1); lcd.print("B:H.... S...    ");
+
+    // Initialize ESP-NOW
+    WiFi.mode(WIFI_STA);
+    if (esp_now_init() != ESP_OK) {
+        lcd.clear();
+        lcd.print("ESP-NOW FAIL");
+        return;
+    }
+    
+    esp_now_register_recv_cb(OnDataRecv);
+}
+
+void loop() {
+    if (millis() - lastUpdate > 500) {
+        lastUpdate = millis();
+
+        // TESTBED B (The Smart Drip/XIAO Node)
+        int hB = incomingData.moisture; 
+        int sB = incomingData.salinity;
+        bool pB = incomingData.pumpState;
+
+        // Update Bed B on LCD only if values changed
+        if (hB != lastHB) { lcd.setCursor(3, 1); lcd.print(pad(hB, 4)); lastHB = hB; }
+        if (sB != lastSB) { lcd.setCursor(9, 1); lcd.print(pad(sB, 3)); lastSB = sB; }
+        
+        if (pB != lastPump) {
+            lcd.setCursor(13, 1);
+            lcd.print(pB ? "ON " : "OFF");
+            lastPump = pB;
+        }
+
+        // Heartbeat logic to verify "Communication" [cite: 29]
+        static bool hb = false;
+        lcd.setCursor(12, 1);
+        lcd.print(hb ? "*" : " ");
+        hb = !hb;
+    }
+}
+
+String pad(int val, int width) {
+    String s = String(val);
+    while (s.length() < width) s = " " + s;
+    return s;
+}
