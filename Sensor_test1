@@ -1,0 +1,107 @@
+/*
+ * SENDER CODE (Seeed XIAO ESP32C3)
+ * 1. Reads soil moisture and battery voltage
+ * 2. Sends data to the Hub via ESP-NOW
+ * 3. Enters Deep Sleep to conserve power
+ */
+#include <esp_now.h>
+#include <WiFi.h>
+
+// --- CONFIGURATION ---
+#define BOARD_ID 1 // Set to 1 for Bed A, 2 for Bed B
+
+// REPLACE WITH YOUR FREENOVE HUB'S MAC ADDRESS (From Serial Monitor)
+uint8_t broadcastAddress[] = {0xEC, 0xE3, 0x34, 0xA3, 0x4F, 0x68}; 
+
+// Structure must match the Receiver exactly [cite: 45]
+typedef struct struct_message {
+  int id;
+  float temp;
+  float hum;
+  int battery;
+  float batteryVoltage;
+  int moistureRaw;
+  int soilmoisture;
+} struct_message;
+
+struct_message myData;
+esp_now_peer_info_t peerInfo;
+
+// Pins defined in your schematic [cite: 48]
+const int mosfetPin = A2;
+const int batteryPin = A0;
+const int sensorPin = A1;
+
+// Callback: verifies if data was sent successfully [cite: 47]
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA); // Set device as a Wi-Fi Station [cite: 50]
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Register the Send Callback [cite: 53]
+  esp_now_register_send_cb(OnDataSent);
+  
+  // Register peer (The Hub) [cite: 53]
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  pinMode(mosfetPin, OUTPUT);
+  analogReadResolution(12); // Use 12-bit resolution for ESP32-C3 [cite: 52]
+}
+
+void loop() {
+  Serial.println("----- NEW CYCLE -----");
+
+  // 1. Read Battery Voltage [cite: 58, 59]
+  int battRaw = analogRead(batteryPin);
+  myData.batteryVoltage = battRaw * (3.3 / 4095.0) * 3.05;
+
+  // 2. Power on Sensor via MOSFET [cite: 51, 59]
+  digitalWrite(mosfetPin, LOW); // Turn sensor ON
+  delay(1000); // Allow sensor to stabilize [cite: 59]
+
+  // 3. Read Moisture Data [cite: 60]
+  int moistureRaw = analogRead(sensorPin);
+  
+  // Calibration Equation [cite: 61, 62]
+  float dry = 3500.0;
+  float wet = 1500.0;
+  int soilmoisture = (int)(( (float)moistureRaw - dry) / (wet - dry) * 100.0);
+  
+  // Constrain percentage [cite: 62]
+  if (soilmoisture > 100) soilmoisture = 100;
+  if (soilmoisture < 0) soilmoisture = 0;
+
+  digitalWrite(mosfetPin, HIGH); // Sensor OFF to prevent corrosion [cite: 63]
+
+  // 4. Package Data [cite: 63, 64]
+  myData.id = BOARD_ID;
+  myData.moistureRaw = moistureRaw;
+  myData.soilmoisture = soilmoisture;
+  myData.temp = 0; // Placeholder if no temp sensor attached
+  myData.hum = 0;
+
+  // 5. Send message via ESP-NOW [cite: 64]
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
+  
+  // 6. Deep Sleep Preparation [cite: 68, 70]
+  delay(2000); // Wait for transmission to complete [cite: 68]
+  Serial.println("Going to sleep for 10 seconds...");
+  esp_sleep_enable_timer_wakeup(10000 * 1000); // 10 seconds in microseconds 
+  esp_deep_sleep_start(); [cite: 71]
+}
