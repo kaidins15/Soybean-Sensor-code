@@ -1,0 +1,48 @@
+/*
+ * RELAY & PUMP TEST CODE
+ * Hardware: Freenove ESP32
+ * Relay A: GPIO 26 (IN1)
+ * Relay B: GPIO 25 (IN2)
+ */
+
+const int PUMP_A = 26; 
+const int PUMP_B = 25;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize pins
+  pinMode(PUMP_A, OUTPUT);
+  pinMode(PUMP_B, OUTPUT);
+
+  // Ensure pumps start in the OFF position
+  // (Using HIGH because most relays are Active Low)
+  digitalWrite(PUMP_A, HIGH); 
+  digitalWrite(PUMP_B, HIGH);
+
+  Serial.println("--- Relay Test Starting in 3 seconds ---");
+  delay(3000);
+}
+
+void loop() {
+  // TEST PUMP A
+  Serial.println("Testing Pump A (GPIO 26)... Status: ON");
+  digitalWrite(PUMP_A, LOW);  // Turn ON
+  delay(5000);               // Run for 5 seconds
+  
+  digitalWrite(PUMP_A, HIGH); // Turn OFF
+  Serial.println("Testing Pump A... Status: OFF");
+  
+  delay(2000); // Short pause between pumps
+
+  // TEST PUMP B
+  Serial.println("Testing Pump B (GPIO 25)... Status: ON");
+  digitalWrite(PUMP_B, LOW);  // Turn ON
+  delay(5000);               // Run for 5 seconds
+  
+  digitalWrite(PUMP_B, HIGH); // Turn OFF
+  Serial.println("Testing Pump B... Status: OFF");
+
+  Serial.println("Waiting 10 seconds before next cycle...");
+  delay(10000); 
+}
