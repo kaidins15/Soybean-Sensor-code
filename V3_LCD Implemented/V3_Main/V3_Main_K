@@ -1,0 +1,121 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+
+// --- HARDWARE CONFIGURATION ---
+// LCD: SDA -> GPIO 21, SCL -> GPIO 22
+LiquidCrystal_I2C lcd(0x27, 20, 4); // Adjusted for 20x4, change to (0x27, 16, 2) if using smaller
+#define PUMP_A 26 
+#define PUMP_B 25
+#define MOISTURE_THRESHOLD 50.0
+
+// --- NETWORK CONFIGURATION ---
+const char* ssid = "ESP32-Hub";
+const char* password = "password123";
+WebServer server(80);
+
+// --- DATA STRUCTURE (Must match Senders exactly) ---
+typedef struct struct_message {
+  int id;
+  float temp;
+  float hum;
+  int battery;
+  float batteryVoltage;
+  int moistureRaw;
+  int soilmoisture;
+} struct_message;
+
+struct_message boardsStruct[4]; // Index 0=Node1, 1=Node2, etc.
+bool heartBeat = false;
+
+// --- ESP-NOW CALLBACK ---
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  struct_message tempReadings;
+  memcpy(&tempReadings, incomingData, sizeof(tempReadings));
+  
+  int index = tempReadings.id - 1;
+  if (index >= 0 && index < 4) {
+    boardsStruct[index] = tempReadings;
+    Serial.printf("Data from Node %d: %d%%\n", tempReadings.id, tempReadings.soilmoisture);
+  }
+}
+
+// --- WEB SERVER PAGE ---
+String getHTML() {
+  String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='5'>";
+  html += "<style>table{border-collapse:collapse;width:100%;}td,th{border:1px solid #ddd;padding:8px;}th{background-color:#04AA6D;color:white;}</style></head>";
+  html += "<body><h1>SFU Capstone: Irrigation Hub</h1><table><tr><th>Node</th><th>Moisture %</th><th>Temp</th><th>Battery</th></tr>";
+  for(int i=0; i<4; i++){
+    html += "<tr><td>" + String(i+1) + "</td><td>" + String(boardsStruct[i].soilmoisture) + "%</td><td>" + String(boardsStruct[i].temp) + "C</td><td>" + String(boardsStruct[i].batteryVoltage) + "V</td></tr>";
+  }
+  html += "</table></body></html>";
+  return html;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // 1. RELAY SETUP (Active Low - start OFF)
+  pinMode(PUMP_A, OUTPUT);
+  pinMode(PUMP_B, OUTPUT);
+  digitalWrite(PUMP_A, HIGH); 
+  digitalWrite(PUMP_B, HIGH);
+
+  // 2. LCD SETUP
+  Wire.begin(21, 22); // Explicitly set SDA/SCL pins
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("System Initializing");
+
+  // 3. WIFI & ESP-NOW
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(ssid, password);
+  if (esp_now_init() != ESP_OK) {
+    lcd.print("ESP-NOW Error");
+    return;
+  }
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+  // 4. WEB SERVER
+  server.on("/", [](){ server.send(200, "text/html", getHTML()); });
+  server.begin();
+
+  lcd.clear();
+}
+
+void loop() {
+  server.handleClient();
+
+  // --- IRRIGATION LOGIC ---
+  // Bed 1: Average of Node 1 and 2
+  float avg1 = (boardsStruct[0].soilmoisture + boardsStruct[1].soilmoisture) / 2.0;
+  bool stateA = (avg1 < MOISTURE_THRESHOLD && avg1 > 0); // Ignore 0% (possible sensor error)
+  digitalWrite(PUMP_A, stateA ? LOW : HIGH);
+
+  // Bed 2: Average of Node 3 and 4
+  float avg2 = (boardsStruct[2].soilmoisture + boardsStruct[3].soilmoisture) / 2.0;
+  bool stateB = (avg2 < MOISTURE_THRESHOLD && avg2 > 0);
+  digitalWrite(PUMP_B, stateB ? LOW : HIGH);
+
+  // --- LCD UPDATE (Every 2 seconds) ---
+  static unsigned long lastLCD = 0;
+  if (millis() - lastLCD > 2000) {
+    lastLCD = millis();
+    heartBeat = !heartBeat;
+
+    // Row 1: Bed 1 Status
+    lcd.setCursor(0, 0);
+    lcd.print("B1:"); lcd.print((int)avg1); lcd.print("% ");
+    lcd.print(stateA ? "PUMP:ON " : "PUMP:OFF");
+    lcd.setCursor(15, 0);
+    lcd.print(heartBeat ? "*" : " ");
+
+    // Row 2: Bed 2 Status
+    lcd.setCursor(0, 1);
+    lcd.print("B2:"); lcd.print((int)avg2); lcd.print("% ");
+    lcd.print(stateB ? "PUMP:ON " : "PUMP:OFF");
+  }
+}
