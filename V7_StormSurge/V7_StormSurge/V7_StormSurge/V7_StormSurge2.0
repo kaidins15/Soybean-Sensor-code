@@ -1,0 +1,233 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <PubSubClient.h>
+
+#define PUMP_ON LOW
+#define PUMP_OFF HIGH
+
+// --- NETWORK CONFIG ---
+const char* wifi_ssid = "eduroam";
+const char* eap_identity = "yka106@sfu.ca.ac.kr";
+const char* eap_password = "Kyj65130327!";
+const char* mqtt_server = "broker.hivemq.com";
+const char* mqtt_topic = "sfu/capstone/storm_surge";
+
+const char* ap_ssid = "ESP32-StormHub";
+const char* ap_password = "password123";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+WebServer server(80);
+
+// --- HARDWARE & CALIBRATION ---
+const int PUMP_A = 25;
+const int PUMP_B = 26;
+const int threshold = 70;
+const float FLOW_RATE = 0.051;        // 0.051L/s
+const float TARGET_TOTAL_L = 12.48;   // total water target
+
+// --- EXPERIMENT VARIABLES ---
+bool stormMode = false;
+unsigned long cycleStartTime = 0;
+float currentTotalL = 0.0;
+
+RTC_DATA_ATTR float baseAdcA = 0.0;
+RTC_DATA_ATTR float baseAdcB = 0.0;
+
+float currentAdcA = 0.0, currentAdcB = 0.0;
+float deltaAdcA = 0.0, deltaAdcB = 0.0;
+
+// FIX 4: Flag to defer MQTT publish out of ESP-NOW callback
+volatile bool newDataReady = false;
+
+typedef struct struct_message {
+  int id;
+  float temp;
+  float hum;
+  int battery;
+  float batteryVoltage;
+  int moistureRaw;
+  int soilmoisture;
+} struct_message;
+
+struct_message sensors[4];
+
+// --- MQTT RECONNECT (FIX 2) ---
+void reconnectMQTT() {
+  if (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (client.connect("SFU_StormHub_yka106")) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.println(client.state());
+    }
+  }
+}
+
+// --- MQTT PUBLISH ---
+void sendToMQTT() {
+  if (client.connected()) {
+    String p = "{";
+    p += "\"mode\":\"" + String(stormMode ? "STORM" : "NORMAL") + "\",";
+
+    // Testbed A (Sensor 1 & 2)
+    p += "\"s1_adc\":" + String(sensors[0].moistureRaw) + ",\"s1_pc\":" + String(sensors[0].soilmoisture) + ",";
+    p += "\"s2_adc\":" + String(sensors[1].moistureRaw) + ",\"s2_pc\":" + String(sensors[1].soilmoisture) + ",";
+
+    // Testbed B (Sensor 3 & 4)
+    p += "\"s3_adc\":" + String(sensors[2].moistureRaw) + ",\"s3_pc\":" + String(sensors[2].soilmoisture) + ",";
+    p += "\"s4_adc\":" + String(sensors[3].moistureRaw) + ",\"s4_pc\":" + String(sensors[3].soilmoisture) + ",";
+
+    p += "\"deltaA_adc\":" + String(deltaAdcA, 2) + ",\"deltaB_adc\":" + String(deltaAdcB, 2) + ",";
+    p += "\"totalL\":" + String(currentTotalL, 2) + ",";
+    p += "\"pA\":\"" + String(digitalRead(PUMP_A) == PUMP_ON ? "ON" : "OFF") + "\",";
+    p += "\"pB\":\"" + String(digitalRead(PUMP_B) == PUMP_ON ? "ON" : "OFF") + "\"";
+    p += "}";
+
+    client.publish(mqtt_topic, p.c_str());
+  }
+}
+
+// --- ESP-NOW CALLBACK ---
+// FIX 4: Only process data here, set flag — do NOT call sendToMQTT() directly
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  struct_message incoming;
+  memcpy(&incoming, incomingData, sizeof(incoming));
+  int idx = incoming.id - 1;
+  if (idx >= 0 && idx < 4) sensors[idx] = incoming;
+
+  currentAdcA = (sensors[0].moistureRaw + sensors[1].moistureRaw) / 2.0;
+  currentAdcB = (sensors[2].moistureRaw + sensors[3].moistureRaw) / 2.0;
+  deltaAdcA = currentAdcA - baseAdcA;
+  deltaAdcB = currentAdcB - baseAdcB;
+
+  if (!stormMode) {
+    float avgA = (sensors[0].soilmoisture + sensors[1].soilmoisture) / 2.0;
+    float avgB = (sensors[2].soilmoisture + sensors[3].soilmoisture) / 2.0;
+
+    digitalWrite(PUMP_A, avgA < threshold ? PUMP_ON : PUMP_OFF);
+    digitalWrite(PUMP_B, avgB < threshold ? PUMP_ON : PUMP_OFF);
+  }
+
+  newDataReady = true; // Signal loop() to publish
+}
+
+// --- DASHBOARD HTML ---
+String getHTML() {
+  String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta http-equiv='refresh' content='3'>";
+  h += "<title>Storm Surge Experiment</title><style>";
+  h += "body { font-family: sans-serif; background: #f4f7f6; padding: 20px; text-align: center; }";
+  h += ".container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }";
+  h += ".mode-indicator { padding: 10px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; }";
+  h += ".normal { background: #d4edda; color: #155724; }";
+  h += ".storm { background: #f8d7da; color: #721c24; animation: pulse 2s infinite; }";
+  h += ".grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }";
+  h += ".card { padding: 20px; border-radius: 15px; border: 2px solid #eee; }";
+  h += ".delta { font-size: 24px; color: #e67e22; font-weight: bold; }";
+  h += "button { padding: 15px 25px; border-radius: 10px; border: none; cursor: pointer; font-weight: bold; margin: 5px; color: white; }";
+  h += ".btn-base { background: #3498db; } .btn-storm { background: #e67e22; } .btn-stop { background: #2c3e50; }";
+  h += "@keyframes pulse { 0% {opacity: 1;} 50% {opacity: 0.7;} 100% {opacity: 1;} }";
+  h += "</style></head><body><div class='container'>";
+
+  h += "<h1>STORM SURGE EXPERIMENT</h1>";
+  h += "<div class='mode-indicator " + String(stormMode ? "storm'>⚠️ SIMULATION ACTIVE" : "normal'>✅ NORMAL MODE") + "</div>";
+
+  h += "<div class='grid'>";
+  h += "<div class='card'><h3>Testbed A (S1&2)</h3><p>Current: " + String(currentAdcA, 1) + "%</p><p class='delta'>Δ: " + String(deltaAdcA, 1) + "%</p></div>";
+  h += "<div class='card'><h3>Testbed B (S3&4)</h3><p>Current: " + String(currentAdcB, 1) + "%</p><p class='delta'>Δ: " + String(deltaAdcB, 1) + "%</p></div>";
+  h += "</div>";
+
+  h += "<hr style='margin:30px 0; border:0; border-top:1px solid #eee;'>";
+  h += "<button class='btn-base' onclick='fetch(\"/set_base\")'>SET BASELINE</button>";
+  h += "<button class='btn-storm' onclick='fetch(\"/start_storm\")'>START STORM SURGE</button>";
+  h += "<button class='btn-stop' onclick='fetch(\"/stop_all\")'>SYSTEM RESET / STOP</button>";
+
+  h += "</div></body></html>";
+  return h;
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(PUMP_A, OUTPUT);
+  pinMode(PUMP_B, OUTPUT);
+  digitalWrite(PUMP_A, PUMP_OFF);
+  digitalWrite(PUMP_B, PUMP_OFF);
+
+  // FIX 3: Wait for WPA2 Enterprise WiFi to fully connect before proceeding
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(wifi_ssid, WPA2_AUTH_PEAP, eap_identity, eap_identity, eap_password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected. IP: " + WiFi.localIP().toString());
+
+  esp_now_init();
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+  client.setServer(mqtt_server, 1883);
+
+  server.on("/", []() { server.send(200, "text/html", getHTML()); });
+
+  server.on("/set_base", []() {
+    baseAdcA = currentAdcA;
+    baseAdcB = currentAdcB;
+    server.send(200, "text/plain", "ADC Baseline Set");
+  });
+
+  server.on("/start_storm", []() {
+    stormMode = true;
+    currentTotalL = 0;
+    cycleStartTime = millis();
+    server.send(200, "text/plain", "Storm Surge Simulated");
+  });
+
+  server.on("/stop_all", []() {
+    stormMode = false;
+    digitalWrite(PUMP_A, PUMP_OFF);
+    digitalWrite(PUMP_B, PUMP_OFF);
+    server.send(200, "text/plain", "System Reset");
+  });
+
+  // FIX 1: Only one server.begin() — duplicate removed
+  server.begin();
+}
+
+void loop() {
+  // FIX 2: Use reconnect function instead of bare client.connect()
+  reconnectMQTT();
+  client.loop();
+  server.handleClient();
+
+  // FIX 4: Publish MQTT from loop(), not from ESP-NOW callback
+  if (newDataReady) {
+    newDataReady = false;
+    sendToMQTT();
+  }
+
+  // --- Storm Irrigation (1min ON / 10min OFF) ---
+  if (stormMode && currentTotalL < TARGET_TOTAL_L) {
+    unsigned long now = millis();
+    unsigned long elapsed = (now - cycleStartTime) % 660000;
+
+    if (elapsed < 60000) {
+      digitalWrite(PUMP_A, PUMP_ON);
+      digitalWrite(PUMP_B, PUMP_ON);
+
+      static unsigned long lastUpdate = 0;
+      if (now - lastUpdate >= 1000) {
+        currentTotalL += FLOW_RATE;
+        lastUpdate = now;
+      }
+    } else {
+      digitalWrite(PUMP_A, PUMP_OFF);
+      digitalWrite(PUMP_B, PUMP_OFF);
+    }
+  } else if (currentTotalL >= TARGET_TOTAL_L && stormMode) {
+    digitalWrite(PUMP_A, PUMP_OFF);
+    digitalWrite(PUMP_B, PUMP_OFF);
+  }
+}
