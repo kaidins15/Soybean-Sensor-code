@@ -38,6 +38,9 @@ RTC_DATA_ATTR float baseAdcB = 0.0;
 float currentAdcA = 0.0, currentAdcB = 0.0;
 float deltaAdcA = 0.0, deltaAdcB = 0.0;
 
+// FIX 1 - Percentage averages (separate from raw ADC)
+float currentPcA = 0.0, currentPcB = 0.0;
+
 // FIX 4: Flag to defer MQTT publish out of ESP-NOW callback
 volatile bool newDataReady = false;
 
@@ -103,6 +106,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   deltaAdcA = currentAdcA - baseAdcA;
   deltaAdcB = currentAdcB - baseAdcB;
 
+  // FIX 1: Calculate percentage averages separately
+  currentPcA = (sensors[0].soilmoisture + sensors[1].soilmoisture) / 2.0;
+  currentPcB = (sensors[2].soilmoisture + sensors[3].soilmoisture) / 2.0;
+
   if (!stormMode) {
     float avgA = (sensors[0].soilmoisture + sensors[1].soilmoisture) / 2.0;
     float avgB = (sensors[2].soilmoisture + sensors[3].soilmoisture) / 2.0;
@@ -134,9 +141,17 @@ String getHTML() {
   h += "<h1>STORM SURGE EXPERIMENT</h1>";
   h += "<div class='mode-indicator " + String(stormMode ? "storm'>⚠️ SIMULATION ACTIVE" : "normal'>✅ NORMAL MODE") + "</div>";
 
+  // FIX 1: Show percentage AND raw ADC separately
   h += "<div class='grid'>";
-  h += "<div class='card'><h3>Testbed A (S1&2)</h3><p>Current: " + String(currentAdcA, 1) + "%</p><p class='delta'>Δ: " + String(deltaAdcA, 1) + "%</p></div>";
-  h += "<div class='card'><h3>Testbed B (S3&4)</h3><p>Current: " + String(currentAdcB, 1) + "%</p><p class='delta'>Δ: " + String(deltaAdcB, 1) + "%</p></div>";
+  h += "<div class='card'><h3>Testbed A (S1&2)</h3>";
+  h += "<p>Moisture: " + String(currentPcA, 1) + "%</p>";
+  h += "<p>Raw ADC: " + String(currentAdcA, 0) + "</p>";
+  h += "<p class='delta'>Δ ADC: " + String(deltaAdcA, 1) + "</p></div>";
+
+  h += "<div class='card'><h3>Testbed B (S3&4)</h3>";
+  h += "<p>Moisture: " + String(currentPcB, 1) + "%</p>";
+  h += "<p>Raw ADC: " + String(currentAdcB, 0) + "</p>";
+  h += "<p class='delta'>Δ ADC: " + String(deltaAdcB, 1) + "</p></div>";
   h += "</div>";
 
   h += "<hr style='margin:30px 0; border:0; border-top:1px solid #eee;'>";
