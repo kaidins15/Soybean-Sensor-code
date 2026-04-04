@@ -131,17 +131,17 @@ String getHTML() {
 <meta http-equiv="refresh" content="3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Storm Surge Command Center</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --storm: #ff4d00;
     --normal: #00ffaa;
     --blue: #00c8ff;
-    --dark: #050d1a;
-    --card: #0a1628;
-    --border: #0f2a4a;
+    --dark: #0d1f35;
+    --card: #162840;
+    --border: #1e3a5a;
     --text: #c8dff0;
-    --dim: #4a6a8a;
+    --dim: #6a8aaa;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -150,27 +150,21 @@ String getHTML() {
     background: var(--dark);
     color: var(--text);
     font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
     min-height: 100vh;
     overflow-x: hidden;
   }
 
-  /* Animated grid background */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     background-image:
-      linear-gradient(rgba(0,200,255,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,200,255,0.03) 1px, transparent 1px);
+      linear-gradient(rgba(0,200,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,200,255,0.04) 1px, transparent 1px);
     background-size: 40px 40px;
-    animation: gridMove 20s linear infinite;
     pointer-events: none;
     z-index: 0;
-  }
-
-  @keyframes gridMove {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(40px); }
   }
 
   .wrapper {
@@ -181,16 +175,9 @@ String getHTML() {
     padding: 30px 20px;
   }
 
-  /* Header */
   header {
     text-align: center;
     margin-bottom: 30px;
-    animation: fadeDown 0.8s ease both;
-  }
-
-  @keyframes fadeDown {
-    from { opacity: 0; transform: translateY(-20px); }
-    to { opacity: 1; transform: translateY(0); }
   }
 
   .title {
@@ -210,9 +197,9 @@ String getHTML() {
     color: var(--dim);
     text-transform: uppercase;
     margin-top: 6px;
+    font-weight: 700;
   }
 
-  /* Mode badge */
   .mode-banner {
     display: flex;
     align-items: center;
@@ -226,7 +213,6 @@ String getHTML() {
     letter-spacing: 3px;
     margin-bottom: 30px;
     border: 1px solid;
-    animation: fadeDown 0.8s 0.1s ease both;
   }
 
   .mode-normal {
@@ -240,8 +226,7 @@ String getHTML() {
     background: rgba(255,77,0,0.1);
     border-color: var(--storm);
     color: var(--storm);
-    box-shadow: 0 0 40px rgba(255,77,0,0.2);
-    animation: fadeDown 0.8s 0.1s ease both, stormPulse 1.5s ease-in-out infinite;
+    animation: stormPulse 1.5s ease-in-out infinite;
   }
 
   @keyframes stormPulse {
@@ -261,7 +246,6 @@ String getHTML() {
     50% { opacity: 0.4; transform: scale(0.6); }
   }
 
-  /* Section labels */
   .section-label {
     font-family: 'Orbitron', monospace;
     font-size: 0.65rem;
@@ -270,20 +254,14 @@ String getHTML() {
     text-transform: uppercase;
     margin-bottom: 12px;
     padding-left: 4px;
+    font-weight: 700;
   }
 
-  /* Testbed grid */
   .testbeds {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     margin-bottom: 20px;
-    animation: fadeUp 0.8s 0.2s ease both;
-  }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
   }
 
   .testbed-card {
@@ -318,13 +296,13 @@ String getHTML() {
     margin-bottom: 18px;
   }
 
-  /* Moisture bar */
   .moisture-label {
     font-size: 0.75rem;
     letter-spacing: 3px;
     color: var(--dim);
     text-transform: uppercase;
     margin-bottom: 6px;
+    font-weight: 700;
   }
 
   .moisture-value {
@@ -348,11 +326,9 @@ String getHTML() {
     height: 100%;
     border-radius: 2px;
     background: linear-gradient(90deg, var(--blue), var(--normal));
-    transition: width 1s ease;
     box-shadow: 0 0 10px rgba(0,255,170,0.5);
   }
 
-  /* Sensor rows */
   .sensor-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -373,6 +349,7 @@ String getHTML() {
     color: var(--dim);
     text-transform: uppercase;
     margin-bottom: 4px;
+    font-weight: 700;
   }
 
   .sensor-val {
@@ -386,9 +363,9 @@ String getHTML() {
     font-size: 0.75rem;
     color: var(--dim);
     margin-top: 2px;
+    font-weight: 600;
   }
 
-  /* Delta */
   .delta-row {
     display: flex;
     justify-content: space-between;
@@ -404,6 +381,7 @@ String getHTML() {
     letter-spacing: 3px;
     color: #aa7700;
     text-transform: uppercase;
+    font-weight: 700;
   }
 
   .delta-val {
@@ -413,7 +391,6 @@ String getHTML() {
     color: #ffaa00;
   }
 
-  /* Pump status */
   .pump-row {
     display: flex;
     align-items: center;
@@ -427,6 +404,7 @@ String getHTML() {
     color: var(--dim);
     text-transform: uppercase;
     flex: 1;
+    font-weight: 700;
   }
 
   .pump-badge {
@@ -442,7 +420,6 @@ String getHTML() {
     background: rgba(0,255,170,0.1);
     color: var(--normal);
     border: 1px solid var(--normal);
-    box-shadow: 0 0 10px rgba(0,255,170,0.2);
     animation: pumpGlow 1s ease-in-out infinite;
   }
 
@@ -457,13 +434,11 @@ String getHTML() {
     border: 1px solid var(--border);
   }
 
-  /* Stats row */
   .stats-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     margin-bottom: 20px;
-    animation: fadeUp 0.8s 0.3s ease both;
   }
 
   .stat-card {
@@ -481,6 +456,7 @@ String getHTML() {
     letter-spacing: 4px;
     color: var(--dim);
     text-transform: uppercase;
+    font-weight: 700;
   }
 
   .stat-value {
@@ -494,16 +470,15 @@ String getHTML() {
     font-size: 0.8rem;
     color: var(--dim);
     margin-top: -4px;
+    font-weight: 600;
   }
 
-  /* Water progress */
   .water-card {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 18px 22px;
     margin-bottom: 20px;
-    animation: fadeUp 0.8s 0.35s ease both;
   }
 
   .water-header {
@@ -524,7 +499,6 @@ String getHTML() {
     height: 100%;
     border-radius: 3px;
     background: linear-gradient(90deg, #0050ff, var(--blue));
-    transition: width 1.5s ease;
     box-shadow: 0 0 12px rgba(0,200,255,0.4);
     position: relative;
     overflow: hidden;
@@ -545,12 +519,10 @@ String getHTML() {
     100% { left: 140%; }
   }
 
-  /* Buttons */
   .controls {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
-    animation: fadeUp 0.8s 0.4s ease both;
   }
 
   .btn {
@@ -569,27 +541,13 @@ String getHTML() {
     overflow: hidden;
   }
 
-  .btn::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: currentColor;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  .btn:hover::before { opacity: 0.08; }
+  .btn:hover { opacity: 0.8; }
   .btn:active { transform: scale(0.97); }
 
   .btn-base { border-color: var(--blue); color: var(--blue); }
   .btn-storm { border-color: var(--storm); color: var(--storm); }
   .btn-stop { border-color: var(--dim); color: var(--dim); }
 
-  .btn-storm:hover {
-    box-shadow: 0 0 20px rgba(255,77,0,0.3);
-  }
-
-  /* Footer */
   .footer {
     text-align: center;
     margin-top: 24px;
@@ -597,12 +555,11 @@ String getHTML() {
     letter-spacing: 3px;
     color: var(--border);
     text-transform: uppercase;
-    animation: fadeUp 0.8s 0.5s ease both;
+    font-weight: 700;
   }
 
   @media (max-width: 600px) {
     .testbeds, .stats-row, .controls { grid-template-columns: 1fr; }
-    .sensor-grid { grid-template-columns: 1fr 1fr; }
   }
 </style>
 </head>
@@ -616,14 +573,12 @@ String getHTML() {
 
 )rawhtml";
 
-  // Mode banner
   if (stormMode) {
     h += "<div class='mode-banner mode-storm'><div class='pulse-dot'></div>⚡ STORM SIMULATION ACTIVE</div>";
   } else {
     h += "<div class='mode-banner mode-normal'><div class='pulse-dot'></div>✦ SYSTEM NORMAL</div>";
   }
 
-  // Water progress
   float waterPct = min((currentTotalL / TARGET_TOTAL_L) * 100.0, 100.0);
   h += "<div class='water-card'>";
   h += "<div class='water-header'>";
@@ -633,7 +588,6 @@ String getHTML() {
   h += "<div class='water-progress-track'><div class='water-progress-fill' style='width:" + String(waterPct, 1) + "%'></div></div>";
   h += "</div>";
 
-  // Testbeds
   h += "<div class='section-label'>Testbed Readings</div>";
   h += "<div class='testbeds'>";
 
@@ -669,15 +623,13 @@ String getHTML() {
   h += "<div class='pump-row'><span class='pump-label'>Pump B Status</span><span class='pump-badge " + pumpBClass + "'>" + pumpBState + "</span></div>";
   h += "</div>";
 
-  h += "</div>"; // end testbeds
+  h += "</div>";
 
-  // Stats row
   h += "<div class='stats-row'>";
   h += "<div class='stat-card'><div class='stat-label'>Baseline ADC — A</div><div class='stat-value'>" + String(baseAdcA, 0) + "</div><div class='stat-unit'>Raw ADC reference</div></div>";
   h += "<div class='stat-card'><div class='stat-label'>Baseline ADC — B</div><div class='stat-value'>" + String(baseAdcB, 0) + "</div><div class='stat-unit'>Raw ADC reference</div></div>";
   h += "</div>";
 
-  // Controls
   h += "<div class='section-label'>System Controls</div>";
   h += "<div class='controls'>";
   h += "<button class='btn btn-base' onclick='fetch(\"/set_base\")'>◈ Set Baseline</button>";
